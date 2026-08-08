@@ -37,3 +37,17 @@ out/
 *.log
 docs/.~lock.*
 docs/*.tmp
+
+# ---- Added: standardized patterns ----
+dist/
+build/
+env/
+.mypy_cache/
+keys/
+!keys/.gitkeep
+*.pem
+*.key
+.env.*
+!.env.example
+yarn-error.log*
+pnpm-debug.log*
