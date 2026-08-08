@@ -29,14 +29,41 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from app.api.deps import get_session  # noqa: E402
 from app.core.ratelimit import reset_local_windows  # noqa: E402
+from app.integrations import openrouter as openrouter_module  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.models.enums import UserRole  # noqa: E402
+from app.services import storage as storage_module  # noqa: E402
 
 
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def isolated_storage(tmp_path):
+    """Point resume storage at a per-test directory.
+
+    Without this, uploads in tests would write into the repository's ``var/``
+    directory and leak between runs.
+    """
+    storage_module.set_storage(storage_module.LocalStorage(tmp_path / "storage"))
+    yield tmp_path / "storage"
+    storage_module.set_storage(None)
+
+
+@pytest.fixture(autouse=True)
+def no_llm():
+    """Fail loudly rather than call OpenRouter if a test forgets to stub it.
+
+    ``LLM_ENABLED=false`` already short-circuits the real client, but resetting
+    the module-level singleton stops one test's fake client leaking into the
+    next.
+    """
+    openrouter_module.set_llm_client(None)
+    yield
+    openrouter_module.set_llm_client(None)
 
 
 @pytest_asyncio.fixture

@@ -540,12 +540,16 @@ async def bulk_ingest(
     One malformed file must not abort the batch, so each file is committed
     independently and failures are collected.
     """
-    succeeded: list[tuple[Candidate, Resume, bool, list[str]]] = []
+    # Only identifiers are carried through the loop. Rolling back a failed file
+    # expires every object in the session's identity map — including the ones
+    # earlier files committed — so holding on to those instances would hand the
+    # caller unloadable rows. The survivors are re-read once the batch is done.
+    committed: list[tuple[uuid.UUID, uuid.UUID, bool, list[str]]] = []
     errors: list[dict] = []
 
     for filename, content_type, data in files:
         try:
-            result = await ingest_resume(
+            candidate, resume, is_existing, warnings = await ingest_resume(
                 session,
                 organization_id,
                 data=data,
@@ -553,7 +557,7 @@ async def bulk_ingest(
                 content_type=content_type,
                 source=source,
             )
-            succeeded.append(result)
+            committed.append((candidate.id, resume.id, is_existing, warnings))
         except (ExtractionError, ValidationError, ConflictError) as exc:
             await session.rollback()
             errors.append({"filename": filename, "error": exc.message})
@@ -561,5 +565,12 @@ async def bulk_ingest(
             await session.rollback()
             logger.exception("Unexpected failure ingesting %s", filename)
             errors.append({"filename": filename, "error": str(exc)})
+
+    succeeded: list[tuple[Candidate, Resume, bool, list[str]]] = []
+    for candidate_id, resume_id, is_existing, warnings in committed:
+        candidate = await get_scoped(session, Candidate, candidate_id, organization_id)
+        resume = await get_scoped(session, Resume, resume_id, organization_id)
+        if candidate is not None and resume is not None:
+            succeeded.append((candidate, resume, is_existing, warnings))
 
     return succeeded, errors

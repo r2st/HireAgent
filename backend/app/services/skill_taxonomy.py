@@ -130,6 +130,13 @@ _WS = re.compile(r"\s+")
 
 PROFICIENCY_LEVELS = ("beginner", "intermediate", "advanced", "expert")
 
+# A proficiency or duration qualifier trailing a skill name.
+_QUALIFIER_SUFFIX = re.compile(
+    r"(?<=\w)\s*[-–(]?\s*"
+    r"(?:\d+\+?\s*(?:years?|yrs?)|beginner|intermediate|advanced|expert)"
+    r"\s*\)?\s*$"
+)
+
 
 def _normalise(raw: str) -> str:
     text = _PUNCT.sub(" ", raw.lower())
@@ -152,11 +159,11 @@ def canonicalize(skill: str) -> str:
         return _LOOKUP[normalized]
 
     # Strip trailing qualifiers such as "Python (advanced)" or "React - 3 yrs".
-    stripped = re.sub(
-        r"\s*[-–(]\s*(\d+\+?\s*(years?|yrs?)|beginner|intermediate|advanced|expert).*$",
-        "",
-        normalized,
-    ).strip()
+    # Note this runs on the *normalised* form, where brackets have already been
+    # flattened to spaces, so the separator has to be optional. The lookbehind
+    # and the end anchor keep it from eating a skill that merely starts with a
+    # qualifier word ("Advanced Analytics").
+    stripped = _QUALIFIER_SUFFIX.sub("", normalized).strip()
     if stripped and stripped in _LOOKUP:
         return _LOOKUP[stripped]
 
@@ -167,7 +174,7 @@ def canonicalize(skill: str) -> str:
     return " ".join(w if w.isupper() else w.capitalize() for w in cleaned.split())
 
 
-def normalize_skills(skills: list) -> list[dict]:
+def normalize_skills(skills: list | None) -> list[dict]:
     """Canonicalise a mixed list of skill strings/dicts.
 
     Accepts ``["python", {"name": "React.js", "proficiency": "advanced"}]`` and

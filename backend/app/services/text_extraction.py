@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+import zipfile
 
 from app.core.errors import ValidationError
 
@@ -109,7 +110,15 @@ def _extract_docx(data: bytes) -> str:
 
     try:
         document = docx.Document(io.BytesIO(data))
-    except (PackageNotFoundError, ValueError, KeyError, OSError) as exc:
+    except (
+        PackageNotFoundError,
+        # A truncated or non-zip upload surfaces as BadZipFile, which is not an
+        # OSError — without it a corrupt .docx would 500 instead of 422.
+        zipfile.BadZipFile,
+        ValueError,
+        KeyError,
+        OSError,
+    ) as exc:
         raise ExtractionError(f"Could not read the DOCX file: {exc}") from exc
 
     parts = [p.text for p in document.paragraphs]
