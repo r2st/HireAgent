@@ -1,0 +1,9 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "extraPaths": ["."],
+  "include": ["app", "tests"],
+  "exclude": ["**/__pycache__", ".venv"],
+  "typeCheckingMode": "basic",
+  "reportMissingModuleSource": "none"
+}

@@ -1,0 +1,41 @@
+name: hireagent
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hireagent-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hireagent
+      POSTGRES_PASSWORD: hireagent
+      POSTGRES_DB: hireagent
+    ports:
+      # Non-default host port to avoid clashing with other local PostgreSQL
+      # instances; the backend's DATABASE_URL must match.
+      - "5436:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hireagent -d hireagent"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: hireagent-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:

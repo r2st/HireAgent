@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+keys/*
+!keys/.gitkeep
+
+# Storage (uploaded resumes, generated documents)
+backend/var/
+storage/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Scratch
+*.log
+docs/.~lock.*
+docs/*.tmp
