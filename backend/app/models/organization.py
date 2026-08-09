@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -18,7 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDPrimaryKeyMixin
-from app.db.types import JSONColumn
+from app.db.types import JSONColumn, UTCDateTime
 from app.models.enums import OrganizationType, PlanTier, UserRole
 
 if TYPE_CHECKING:
@@ -50,7 +49,7 @@ class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     )
     screening_credits_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     screening_credits_reset_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        UTCDateTime
     )
 
     # Free-form per-tenant configuration: scoring weight defaults, pipeline
@@ -92,7 +91,7 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         String(32), default=UserRole.RECRUITER, nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # Custom per-user permission overrides on top of the role defaults.
     permissions_json: Mapped[dict] = mapped_column(
         JSONColumn, default=dict, nullable=False

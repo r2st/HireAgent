@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -24,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import TenantBase
-from app.db.types import EncryptedText, JSONColumn
+from app.db.types import EncryptedText, JSONColumn, UTCDateTime
 from app.models.enums import (
     EmailProvider,
     EnrollmentStatus,
@@ -65,16 +64,16 @@ class EmailAccount(TenantBase):
     imap_port: Mapped[int | None] = mapped_column(Integer)
     oauth_access_token: Mapped[str | None] = mapped_column(EncryptedText)
     oauth_refresh_token: Mapped[str | None] = mapped_column(EncryptedText)
-    oauth_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    oauth_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     warmup_status: Mapped[WarmupStatus] = mapped_column(
         String(24), default=WarmupStatus.NOT_STARTED, nullable=False
     )
-    warmup_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    warmup_started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # Ramps up during warm-up; the scheduler will not exceed it.
     daily_limit: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
     sent_today: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    sent_today_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_today_date: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # 0-100; drops on bounces/spam complaints and gates rotation eligibility.
     reputation_score: Mapped[float] = mapped_column(
         Numeric(5, 2), default=100, nullable=False
@@ -85,7 +84,7 @@ class EmailAccount(TenantBase):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_error: Mapped[str | None] = mapped_column(Text)
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     @property
     def is_sendable(self) -> bool:
@@ -159,8 +158,8 @@ class OutreachSequence(TenantBase):
     stop_on_reply: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     daily_cap: Mapped[int | None] = mapped_column(Integer)
 
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     steps: Mapped[list[SequenceStep]] = relationship(
         back_populates="sequence",
@@ -235,11 +234,11 @@ class SequenceEnrollment(TenantBase):
     )
     current_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     next_send_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), index=True
+        UTCDateTime, index=True
     )
-    enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    enrolled_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    replied_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     paused_reason: Mapped[str | None] = mapped_column(String(255))
 
     sequence: Mapped[OutreachSequence] = relationship(back_populates="enrollments")
@@ -288,13 +287,13 @@ class OutreachMessage(TenantBase):
     body: Mapped[str | None] = mapped_column(EncryptedText)
     variant_group: Mapped[str | None] = mapped_column(String(16))
 
-    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    clicked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    bounced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scheduled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    delivered_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    opened_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    clicked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    replied_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    bounced_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     provider_message_id: Mapped[str | None] = mapped_column(String(500), index=True)
     error: Mapped[str | None] = mapped_column(Text)

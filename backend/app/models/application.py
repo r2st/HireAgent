@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    DateTime,
     ForeignKey,
     Index,
     Numeric,
@@ -18,7 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import TenantBase
-from app.db.types import JSONColumn
+from app.db.types import JSONColumn, UTCDateTime
 from app.models.enums import (
     ApplicationStatus,
     CandidateSource,
@@ -69,10 +68,10 @@ class Application(TenantBase):
     # board can sort without joining screenings.
     score: Mapped[float | None] = mapped_column(Numeric(5, 2), index=True)
 
-    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    stage_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    hired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    applied_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    stage_changed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    hired_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    rejected_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
 
     assigned_to_id: Mapped[uuid.UUID | None] = mapped_column(

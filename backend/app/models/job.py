@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -20,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import TenantBase
-from app.db.types import JSONColumn
+from app.db.types import JSONColumn, UTCDateTime
 from app.models.enums import (
     EmploymentType,
     JobStatus,
@@ -71,8 +70,8 @@ class Job(TenantBase):
     status: Mapped[JobStatus] = mapped_column(
         String(24), default=JobStatus.DRAFT, nullable=False, index=True
     )
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     openings: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     min_experience_years: Mapped[float | None] = mapped_column(Numeric(4, 1))

@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -20,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import TenantBase
-from app.db.types import EncryptedText, JSONColumn
+from app.db.types import EncryptedText, JSONColumn, UTCDateTime
 from app.models.enums import InterviewStatus, InterviewType
 
 if TYPE_CHECKING:
@@ -48,12 +47,12 @@ class CalendarAccount(TenantBase):
     # OAuth material is credentials, not display data — always encrypted.
     access_token: Mapped[str | None] = mapped_column(EncryptedText)
     refresh_token: Mapped[str | None] = mapped_column(EncryptedText)
-    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    token_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     scopes: Mapped[list] = mapped_column(JSONColumn, default=list, nullable=False)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sync_error: Mapped[str | None] = mapped_column(Text)
-    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     # Working hours used when proposing slots, e.g.
     # {"mon": [["09:00","17:00"]], ...} in ``timezone``.
@@ -88,7 +87,7 @@ class Interview(TenantBase):
     title: Mapped[str | None] = mapped_column(String(255))
 
     scheduled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), index=True
+        UTCDateTime, index=True
     )
     duration_minutes: Mapped[int] = mapped_column(Integer, default=45, nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
@@ -105,7 +104,7 @@ class Interview(TenantBase):
     booking_token: Mapped[str | None] = mapped_column(
         String(64), unique=True, index=True
     )
-    booking_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    booking_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     calendar_account_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("calendar_accounts.id", ondelete="SET NULL")
@@ -113,12 +112,12 @@ class Interview(TenantBase):
     external_event_id: Mapped[str | None] = mapped_column(String(255))
 
     reminder_24h_sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        UTCDateTime
     )
-    reminder_1h_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminder_1h_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    cancelled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     cancellation_reason: Mapped[str | None] = mapped_column(Text)
     rescheduled_from_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("interviews.id", ondelete="SET NULL")
@@ -168,7 +167,7 @@ class InterviewParticipant(TenantBase):
     recommendation: Mapped[str | None] = mapped_column(String(32))
     feedback: Mapped[str | None] = mapped_column(Text)
     feedback_submitted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
+        UTCDateTime
     )
     scorecard_json: Mapped[dict | None] = mapped_column(JSONColumn)
 

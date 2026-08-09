@@ -8,7 +8,6 @@ from datetime import date, datetime
 from sqlalchemy import (
     Boolean,
     Date,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -20,7 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import TenantBase
-from app.db.types import EncryptedText, JSONColumn
+from app.db.types import EncryptedText, JSONColumn, UTCDateTime
 from app.models.enums import OfferStatus
 
 
@@ -89,11 +88,11 @@ class OfferLetter(TenantBase):
     approved_by_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    viewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    signed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    responded_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     decline_reason: Mapped[str | None] = mapped_column(Text)
 
     esign_provider: Mapped[str | None] = mapped_column(String(32))  # docusign | digio

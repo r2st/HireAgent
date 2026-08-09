@@ -7,7 +7,6 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Date,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -19,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import TenantBase
-from app.db.types import JSONColumn
+from app.db.types import JSONColumn, UTCDateTime
 from app.models.enums import JobBoard, PostingStatus
 
 
@@ -86,10 +85,10 @@ class JobBoardPosting(TenantBase):
     external_id: Mapped[str | None] = mapped_column(String(255), index=True)
     external_url: Mapped[str | None] = mapped_column(String(1000))
 
-    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    posted_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    removed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     # Watermark for incremental application imports.
     last_import_cursor: Mapped[str | None] = mapped_column(String(255))

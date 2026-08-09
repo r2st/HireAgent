@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -25,7 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import TenantBase
-from app.db.types import EncryptedJSON, EncryptedText, JSONColumn
+from app.db.types import EncryptedJSON, EncryptedText, JSONColumn, UTCDateTime
 from app.models.enums import (
     CandidateSource,
     ConsentStatus,
@@ -84,7 +83,7 @@ class Candidate(TenantBase):
 
     # Drives retention sweeps (design §8.1: N months from last activity).
     last_activity_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), index=True
+        UTCDateTime, index=True
     )
     is_blacklisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
@@ -139,7 +138,7 @@ class Resume(TenantBase):
         String(24), default=ResumeParseStatus.PENDING, nullable=False, index=True
     )
     parse_error: Mapped[str | None] = mapped_column(Text)
-    parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    parsed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     parser_model: Mapped[str | None] = mapped_column(String(120))
     parse_confidence: Mapped[float | None] = mapped_column(Numeric(5, 4))
 
@@ -183,9 +182,9 @@ class CandidateConsent(TenantBase):
     status: Mapped[ConsentStatus] = mapped_column(
         String(24), default=ConsentStatus.GRANTED, nullable=False
     )
-    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    granted_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    withdrawn_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     # Provenance for auditability.
     source: Mapped[str] = mapped_column(String(80), default="api", nullable=False)

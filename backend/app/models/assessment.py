@@ -7,7 +7,6 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -19,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import TenantBase
-from app.db.types import EncryptedJSON, JSONColumn
+from app.db.types import EncryptedJSON, JSONColumn, UTCDateTime
 from app.models.enums import AssessmentStatus, AssessmentType
 
 
@@ -82,10 +81,10 @@ class Assessment(TenantBase):
     invite_token: Mapped[str | None] = mapped_column(
         String(64), unique=True, index=True
     )
-    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     time_spent_seconds: Mapped[int | None] = mapped_column(Integer)
 
     template: Mapped[AssessmentTemplate | None] = relationship(lazy="noload")

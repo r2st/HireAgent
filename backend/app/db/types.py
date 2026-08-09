@@ -7,9 +7,10 @@ SQLite so the test suite can run without a database server.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Text, TypeDecorator
+from sqlalchemy import JSON, DateTime, Text, TypeDecorator
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.security import decrypt_text, encrypt_text
@@ -17,6 +18,39 @@ from app.core.security import decrypt_text, encrypt_text
 # JSON that becomes JSONB on PostgreSQL (indexable, binary) and plain JSON
 # elsewhere.
 JSONColumn = JSON().with_variant(JSONB(), "postgresql")
+
+
+class UTCDateTime(TypeDecorator):
+    """A timestamp that is always tz-aware UTC in Python, on every dialect.
+
+    PostgreSQL's ``timestamptz`` round-trips tzinfo, but SQLite has no time
+    zone type and hands back naive datetimes. That difference is invisible
+    until a value is read back — an interview scheduled at an aware datetime
+    serialises as ``...Z`` before ``session.refresh()`` and without the ``Z``
+    after — so it is normalised here rather than at each call site.
+
+    Stored values are UTC; a naive input is taken to already be UTC, which
+    matches the convention used throughout the scheduling code.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    def process_bind_param(self, value: Any, dialect: Any) -> datetime | None:
+        if value is None:
+            return None
+        return self._as_utc(value)
+
+    def process_result_value(self, value: Any, dialect: Any) -> datetime | None:
+        if value is None:
+            return None
+        return self._as_utc(value)
 
 
 class EncryptedText(TypeDecorator):
