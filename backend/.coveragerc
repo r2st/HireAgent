@@ -1,0 +1,13 @@
+# SQLAlchemy's asyncio layer runs its sync IO inside greenlets. Without
+# declaring that here, coverage stops tracing once execution crosses into a
+# greenlet and reports whole service functions as unrun even though the tests
+# assert on their effects — which makes the coverage number worse than useless.
+[run]
+source = app
+concurrency = greenlet,thread
+
+[report]
+exclude_also =
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    \.\.\.

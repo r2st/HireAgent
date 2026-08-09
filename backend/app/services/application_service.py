@@ -44,6 +44,13 @@ STAGES_REQUIRING_SCREENING = frozenset(
 # two neighbours without renumbering the column.
 BOARD_POSITION_STEP = 1000.0
 
+# Statuses that take a candidate off the board entirely. Everything else —
+# including ``hired`` and ``on_hold`` — is still a live card the recruiter can
+# drag, which is what makes un-hiring and resuming a paused candidate possible.
+CLOSED_STATUSES = frozenset(
+    {ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN}
+)
+
 
 # --------------------------------------------------------------------------- #
 # Creation
@@ -220,7 +227,7 @@ async def move_stage(
     """
     application = await get_application(session, organization_id, application_id)
 
-    if application.status != ApplicationStatus.ACTIVE:
+    if application.status in CLOSED_STATUSES:
         raise ConflictError(
             f"Application is {application.status} and cannot be moved",
             details={"status": application.status},
@@ -305,26 +312,51 @@ async def bulk_move_stage(
     One card that cannot legally move must not abort the whole bulk action, so
     failures are collected and returned alongside the successes.
     """
-    moved: list[Application] = []
+    moved_ids: list[uuid.UUID] = []
     errors: list[dict] = []
     for application_id in application_ids:
         try:
-            moved.append(
-                await move_stage(
-                    session,
-                    organization_id,
-                    application_id,
-                    to_stage,
-                    changed_by_id=changed_by_id,
-                    note=note,
-                    trigger="bulk",
-                    force=force,
-                )
+            await move_stage(
+                session,
+                organization_id,
+                application_id,
+                to_stage,
+                changed_by_id=changed_by_id,
+                note=note,
+                trigger="bulk",
+                force=force,
             )
+            moved_ids.append(application_id)
         except (NotFoundError, ConflictError, ValidationError) as exc:
             await session.rollback()
             errors.append({"application_id": str(application_id), "error": exc.message})
+
+    # Re-read at the end rather than accumulating instances during the loop: a
+    # rollback triggered by a later failure expires every object in the
+    # session, and the already-moved ones would then blow up on access.
+    moved = await _load_applications(session, organization_id, moved_ids)
     return moved, errors
+
+
+async def _load_applications(
+    session: AsyncSession, organization_id: uuid.UUID, ids: list[uuid.UUID]
+) -> list[Application]:
+    """Fetch applications by id, preserving the caller's ordering."""
+    if not ids:
+        return []
+    rows = (
+        (
+            await session.execute(
+                scoped_select(Application, organization_id).where(
+                    Application.id.in_(ids)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_id = {a.id: a for a in rows}
+    return [by_id[i] for i in ids if i in by_id]
 
 
 async def reject_application(
