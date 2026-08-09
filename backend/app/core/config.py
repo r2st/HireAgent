@@ -49,6 +49,26 @@ class Settings(BaseSettings):
     # heuristics instead of hitting the network.
     llm_enabled: bool = True
 
+    # --- Calendar sync (design §4.3) ---
+    # When false, slot proposals fall back to configured working hours and no
+    # external calendar events are written.
+    calendar_sync_enabled: bool = True
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_tenant_id: str = "common"
+
+    # --- Interview scheduling ---
+    # Base URL the candidate-facing booking link points at.
+    public_base_url: str = "http://localhost:3000"
+    # How long a proposed-slot booking link stays valid.
+    booking_token_ttl_hours: int = 168
+    # Slots are never offered closer than this to now.
+    interview_min_notice_hours: int = 12
+    # How far ahead slot search looks by default.
+    interview_horizon_days: int = 14
+
     # --- Storage ---
     storage_dir: str = "./var/storage"
     max_upload_bytes: int = 15 * 1024 * 1024

@@ -7,7 +7,14 @@ inputs stay readable and reviewable in the diff.
 from __future__ import annotations
 
 import io
+from datetime import datetime
 
+from app.integrations.calendar import (
+    BusyResult,
+    CalendarEvent,
+    CalendarProvider,
+    EventResult,
+)
 from app.integrations.openrouter import LLMResult, OpenRouterClient
 
 # --------------------------------------------------------------------------- #
@@ -188,6 +195,77 @@ def _dumps(payload: dict | list) -> str:
     import json
 
     return json.dumps(payload)
+
+
+# --------------------------------------------------------------------------- #
+# Fake calendar provider
+# --------------------------------------------------------------------------- #
+class FakeCalendarProvider(CalendarProvider):
+    """A calendar that answers from a script instead of the network.
+
+    ``busy`` is the block list every ``fetch_busy`` returns. Setting
+    ``synced=False`` simulates an unreachable calendar, and ``raises`` makes the
+    provider blow up so the callers' "a provider fault must not lose the
+    booking" guards can be exercised.
+    """
+
+    name = "google"
+
+    def __init__(
+        self,
+        busy: list[tuple[datetime, datetime]] | None = None,
+        *,
+        synced: bool = True,
+        error: str | None = None,
+        event_id: str = "ext-event-1",
+        meeting_url: str = "https://meet.example.test/abc",
+        create_ok: bool = True,
+        delete_ok: bool = True,
+        raises: bool = False,
+    ) -> None:
+        self.busy = list(busy or [])
+        self.synced = synced
+        self.error = error
+        self.event_id = event_id
+        self.meeting_url = meeting_url
+        self.create_ok = create_ok
+        self.delete_ok = delete_ok
+        self.raises = raises
+        self.created: list[CalendarEvent] = []
+        self.deleted: list[str] = []
+        self.busy_calls = 0
+
+    @property
+    def is_configured(self) -> bool:
+        return True
+
+    async def fetch_busy(self, credentials, start, end) -> BusyResult:
+        self.busy_calls += 1
+        if self.raises:
+            raise RuntimeError("calendar exploded")
+        return BusyResult(
+            blocks=list(self.busy),
+            synced=self.synced,
+            error=self.error,
+        )
+
+    async def create_event(self, credentials, event: CalendarEvent) -> EventResult:
+        if self.raises:
+            raise RuntimeError("calendar exploded")
+        self.created.append(event)
+        if not self.create_ok:
+            return EventResult(ok=False, error="calendar rejected the event")
+        return EventResult(
+            ok=True, external_event_id=self.event_id, meeting_url=self.meeting_url
+        )
+
+    async def delete_event(self, credentials, external_event_id: str) -> EventResult:
+        if self.raises:
+            raise RuntimeError("calendar exploded")
+        self.deleted.append(external_event_id)
+        if not self.delete_ok:
+            return EventResult(ok=False, error="calendar refused the deletion")
+        return EventResult(ok=True)
 
 
 LLM_RESUME_PAYLOAD = {

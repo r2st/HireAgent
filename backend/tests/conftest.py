@@ -29,11 +29,13 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 
 from app.api.deps import get_session  # noqa: E402
 from app.core.ratelimit import reset_local_windows  # noqa: E402
+from app.integrations import calendar as calendar_module  # noqa: E402
 from app.integrations import openrouter as openrouter_module  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.models.enums import UserRole  # noqa: E402
 from app.services import storage as storage_module  # noqa: E402
+from app.workers import reminders as reminders_module  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -64,6 +66,22 @@ def no_llm():
     openrouter_module.set_llm_client(None)
     yield
     openrouter_module.set_llm_client(None)
+
+
+@pytest.fixture(autouse=True)
+def no_calendar():
+    """Reset the calendar provider registry around every test.
+
+    Left alone, one test's fake provider would answer another test's
+    availability lookup. Reset to ``None`` means the registry rebuilds from
+    settings, which in tests configures no OAuth client and so yields the
+    unavailable providers.
+    """
+    calendar_module.set_providers(None)
+    reminders_module.set_notifier(None)
+    yield
+    calendar_module.set_providers(None)
+    reminders_module.set_notifier(None)
 
 
 @pytest_asyncio.fixture

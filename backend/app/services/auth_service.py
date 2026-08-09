@@ -219,6 +219,53 @@ async def create_user(
     return user
 
 
+async def get_user(
+    session: AsyncSession, organization_id: uuid.UUID, user_id: uuid.UUID
+) -> User:
+    """Fetch one user within a tenant.
+
+    ``User`` predates ``TenantBase`` — it hangs off ``Organization`` directly —
+    so it cannot use ``get_scoped``; the org filter is spelled out instead.
+    """
+    user = await session.scalar(
+        select(User).where(
+            User.id == user_id,
+            User.organization_id == organization_id,
+            User.deleted_at.is_(None),
+        )
+    )
+    if user is None:
+        raise NotFoundError("User not found")
+    return user
+
+
+async def get_users(
+    session: AsyncSession, organization_id: uuid.UUID, user_ids: list[uuid.UUID]
+) -> list[User]:
+    """Fetch several users in one query, preserving the caller's ordering.
+
+    Ids belonging to another tenant simply do not come back, so callers should
+    compare lengths rather than assuming a full result.
+    """
+    if not user_ids:
+        return []
+    rows = (
+        (
+            await session.execute(
+                select(User).where(
+                    User.id.in_(user_ids),
+                    User.organization_id == organization_id,
+                    User.deleted_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_id = {u.id: u for u in rows}
+    return [by_id[i] for i in user_ids if i in by_id]
+
+
 async def list_users(
     session: AsyncSession, organization_id: uuid.UUID
 ) -> list[User]:

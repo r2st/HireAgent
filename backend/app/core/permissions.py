@@ -26,6 +26,8 @@ ROLE_PERMISSIONS: dict[UserRole, set[str]] = {
         "interview:read",
         "interview:create",
         "interview:update",
+        # Hiring managers sit on panels, so they file scorecards too.
+        "interview:feedback",
         "assessment:read",
         "offer:read",
         "offer:create",
@@ -52,6 +54,7 @@ ROLE_PERMISSIONS: dict[UserRole, set[str]] = {
         "interview:read",
         "interview:create",
         "interview:update",
+        "interview:feedback",
         "assessment:read",
         "assessment:create",
         "outreach:read",
