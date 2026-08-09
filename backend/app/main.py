@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -28,6 +29,15 @@ logger = logging.getLogger("hireagent")
 
 # Endpoints that must stay reachable even when a caller is over quota.
 RATE_LIMIT_EXEMPT = {"/health", "/ready", "/docs", "/openapi.json", "/redoc"}
+
+# Machine-readable codes for the errors Starlette raises before a route runs.
+HTTP_ERROR_CODES = {
+    401: "authentication_error",
+    403: "permission_denied",
+    404: "not_found",
+    405: "method_not_allowed",
+    429: "rate_limited",
+}
 
 
 @asynccontextmanager
@@ -78,10 +88,13 @@ def create_app() -> FastAPI:
                 return JSONResponse(
                     status_code=429,
                     content={
-                        "code": "rate_limited",
-                        "message": (
-                            f"Rate limit of {limiter.limit} requests/minute exceeded"
-                        ),
+                        "detail": {
+                            "code": "rate_limited",
+                            "message": (
+                                f"Rate limit of {limiter.limit} requests/minute "
+                                "exceeded"
+                            ),
+                        }
                     },
                     headers={"Retry-After": "60", "X-Request-ID": request_id},
                 )
@@ -97,10 +110,34 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-        payload = {"code": exc.code, "message": exc.message}
+        # Same envelope an explicitly converted ``exc.to_http()`` produces, so
+        # an AppError that escapes a route is not a different wire format.
+        payload: dict = {"code": exc.code, "message": exc.message}
         if exc.details is not None:
             payload["details"] = exc.details
-        return JSONResponse(status_code=exc.status_code, content=payload)
+        return JSONResponse(status_code=exc.status_code, content={"detail": payload})
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        """Give framework-raised errors the same body shape as our own.
+
+        Starlette answers an unmatched route or a bad method with a bare
+        string detail, so a client parsing ``detail`` would have to handle
+        both a string and an object. Everything is normalised to the object.
+        """
+        detail = exc.detail
+        if not isinstance(detail, dict):
+            detail = {
+                "code": HTTP_ERROR_CODES.get(exc.status_code, "http_error"),
+                "message": str(detail),
+            }
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": detail},
+            headers=getattr(exc, "headers", None),
+        )
 
     @app.get("/health", tags=["system"])
     async def health() -> dict:
