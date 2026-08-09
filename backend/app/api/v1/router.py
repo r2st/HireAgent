@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    analytics,
     applications,
     assessments,
     auth,
@@ -22,6 +23,7 @@ api_router.include_router(interviews.router)
 api_router.include_router(interviews.calendar_router)
 api_router.include_router(assessments.router)
 api_router.include_router(offers.router)
+api_router.include_router(analytics.router)
 # Candidate self-service booking (design §4.3). Unauthenticated by design —
 # the booking token in the path is the credential.
 api_router.include_router(interviews.public_router)
