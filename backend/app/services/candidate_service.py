@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError, ValidationError
@@ -307,14 +307,33 @@ async def has_consent(
     candidate_id: uuid.UUID,
     consent_type: ConsentType,
 ) -> bool:
-    """Whether the most recent record for this type is an active grant."""
+    """Whether the most recent record for this type is an active grant.
+
+    A tie on ``granted_at`` is broken toward withdrawal. Two records really can
+    share the timestamp — it is a supplied instant rather than an insertion
+    order, and a grant immediately followed by a withdrawal can land inside the
+    same tick — and with no tie-break the row that wins is whichever the
+    database happens to return first. Letting a coin flip decide between
+    "granted" and "withdrawn" means occasionally emailing someone who opted
+    out, which is the one outcome this check exists to prevent. When we cannot
+    tell which came last, we do not send.
+    """
+    # 1 for a grant, 0 for anything else, sorted ascending: within one instant
+    # a non-grant is always the row we act on.
+    withdrawal_first = case(
+        (CandidateConsent.status == ConsentStatus.GRANTED, 1), else_=0
+    )
     latest = await session.scalar(
         scoped_select(CandidateConsent, organization_id)
         .where(
             CandidateConsent.candidate_id == candidate_id,
             CandidateConsent.consent_type == consent_type,
         )
-        .order_by(CandidateConsent.granted_at.desc())
+        .order_by(
+            CandidateConsent.granted_at.desc(),
+            withdrawal_first.asc(),
+            CandidateConsent.created_at.desc(),
+        )
         .limit(1)
     )
     if latest is None or latest.status != ConsentStatus.GRANTED:

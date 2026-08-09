@@ -39,6 +39,8 @@ from app.models.outreach import EmailAccount, MessageTemplate, OutreachMessage
 from app.services import outreach_service
 from app.workers import dispatcher as svc
 
+__all__ = ["FakeTransport", "grant", "make_account", "make_candidate", "make_org"]
+
 NOW = datetime(2027, 3, 8, 12, 0, tzinfo=UTC)  # A Monday, inside the send window.
 
 
@@ -261,9 +263,38 @@ class TestSuccessfulSend:
 
         assert message.tracking_token
         assert outbound.headers["List-Unsubscribe"] == (
-            f"<{svc.unsubscribe_url(message.tracking_token)}>"
+            f"<{outreach_service.one_click_unsubscribe_url(message.tracking_token)}>"
         )
         assert outbound.headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+
+    async def test_the_opt_out_header_points_at_the_api_not_the_frontend(
+        self, session, world
+    ) -> None:
+        """One-click is a POST from the mail client; an SPA cannot answer it."""
+        await svc.dispatch_one(session, world["enrollment"], now=NOW)
+        header = world["transport"].sent[0].headers["List-Unsubscribe"]
+
+        assert settings.api_base_url in header
+        assert settings.api_v1_prefix in header
+
+    async def test_the_body_can_carry_a_human_opt_out_link(
+        self, session, world
+    ) -> None:
+        """CAN-SPAM asks for a visible opt-out, which the header is not."""
+        await outreach_service.update_step(
+            session,
+            world["org"].id,
+            world["sequence"].steps[0].id,
+            changes={"body_override": "Hello. Opt out: {{unsubscribe_url}}"},
+        )
+        await svc.dispatch_one(session, world["enrollment"], now=NOW)
+
+        message = (await messages_for(session, world["enrollment"]))[0]
+        page = outreach_service.unsubscribe_page_url(message.tracking_token)
+        assert page is not None
+        assert world["transport"].sent[0].text_body == f"Hello. Opt out: {page}"
+        # The reader's link goes to the page, not to the machine endpoint.
+        assert page.startswith(settings.public_base_url)
 
     async def test_each_message_gets_its_own_tracking_token(
         self, session, world
@@ -276,14 +307,54 @@ class TestSuccessfulSend:
         assert len(tokens) == 2
 
 
-class TestUnsubscribeUrl:
-    def test_a_token_becomes_a_public_link(self) -> None:
-        url = svc.unsubscribe_url("abc123")
-        assert url is not None and url.endswith("/outreach/unsubscribe/abc123")
+class TestRetryKeepsTheSameOptOutLink:
+    async def test_a_retry_reuses_the_rows_token(
+        self, session, world, transport
+    ) -> None:
+        """Otherwise the body on record cites a link the candidate never got."""
+        transport.results = [
+            email_gateway.SendResult(ok=False, error="timeout", retryable=True),
+            email_gateway.SendResult(ok=True, provider_message_id="msg-2"),
+        ]
+        await outreach_service.update_step(
+            session,
+            world["org"].id,
+            world["sequence"].steps[0].id,
+            changes={"body_override": "Opt out: {{unsubscribe_url}}"},
+        )
+        await svc.dispatch_one(session, world["enrollment"], now=NOW)
+        await svc.dispatch_one(
+            session, world["enrollment"], now=NOW + svc.RETRY_BACKOFF
+        )
 
-    def test_no_token_means_no_link(self) -> None:
-        assert svc.unsubscribe_url(None) is None
-        assert svc.unsubscribe_url("") is None
+        rows = await messages_for(session, world["enrollment"])
+        assert len(rows) == 1
+        sent_bodies = {m.text_body for m in transport.sent}
+        assert len(sent_bodies) == 1
+        assert rows[0].body == sent_bodies.pop()
+
+    async def test_a_retry_re_renders_so_the_record_matches_what_was_sent(
+        self, session, world, transport
+    ) -> None:
+        """A template fixed between attempts must not leave a stale row behind."""
+        transport.results = [
+            email_gateway.SendResult(ok=False, error="timeout", retryable=True),
+            email_gateway.SendResult(ok=True, provider_message_id="msg-2"),
+        ]
+        await svc.dispatch_one(session, world["enrollment"], now=NOW)
+        await outreach_service.update_step(
+            session,
+            world["org"].id,
+            world["sequence"].steps[0].id,
+            changes={"body_override": "Corrected copy"},
+        )
+        await svc.dispatch_one(
+            session, world["enrollment"], now=NOW + svc.RETRY_BACKOFF
+        )
+
+        rows = await messages_for(session, world["enrollment"])
+        assert rows[0].body == "Corrected copy"
+        assert transport.sent[-1].text_body == "Corrected copy"
 
 
 # --------------------------------------------------------------------------- #

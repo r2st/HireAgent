@@ -59,9 +59,16 @@ class Settings(BaseSettings):
     microsoft_client_secret: str = ""
     microsoft_tenant_id: str = "common"
 
-    # --- Interview scheduling ---
-    # Base URL the candidate-facing booking link points at.
+    # --- Public URLs ---
+    # Where the candidate-facing frontend lives. Booking and unsubscribe links
+    # that a human clicks point here; the page then calls the API.
     public_base_url: str = "http://localhost:3000"
+    # Where this API is reachable from outside. Distinct from public_base_url
+    # because a mail client's one-click unsubscribe POSTs straight at the API
+    # and never loads a page — see outreach_service.one_click_unsubscribe_url.
+    api_base_url: str = "http://localhost:8000"
+
+    # --- Interview scheduling ---
     # How long a proposed-slot booking link stays valid.
     booking_token_ttl_hours: int = 168
     # Slots are never offered closer than this to now.

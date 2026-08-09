@@ -15,7 +15,10 @@ compliance claim.
 **The message row is written before the send, and reused after a failure.**
 A crash between writing and sending leaves a queued row that the next pass
 picks up; the reverse order would leave a candidate emailed with nothing to
-show for it, and the pass after that would email them again.
+show for it, and the pass after that would email them again. That row is
+looked up before rendering rather than after, because its opt-out token is
+what ``{{unsubscribe_url}}`` is built from and a retry must not hand the
+candidate a different link from the one on record.
 
 **An unresolved placeholder stops the send.** ``render_message`` reports what
 it could not fill rather than blanking it, and a non-empty ``missing`` is a
@@ -129,13 +132,6 @@ def _new_tracking_token() -> str:
     return secrets.token_urlsafe(24)
 
 
-def unsubscribe_url(token: str | None) -> str | None:
-    """The one-click opt-out link that goes in every outbound message."""
-    if not token:
-        return None
-    return f"{settings.public_base_url.rstrip('/')}/outreach/unsubscribe/{token}"
-
-
 # --------------------------------------------------------------------------- #
 # Daily caps
 # --------------------------------------------------------------------------- #
@@ -245,11 +241,21 @@ async def load_targets(
     )
 
 
-def render_for(targets: SendTargets, sender: EmailAccount | None) -> templates.RenderedMessage:
+def render_for(
+    targets: SendTargets,
+    sender: EmailAccount | None,
+    *,
+    unsubscribe_url: str | None = None,
+) -> templates.RenderedMessage:
     """Render the step's content, preferring its overrides over the template.
 
     A step carries overrides so one sequence can vary a shared template — an
     A/B subject line, a tweaked closing — without forking it.
+
+    ``{{unsubscribe_url}}`` is offered as an ordinary variable rather than
+    stapled to the bottom of every body: where the opt-out sits inside a
+    sentence is a copywriting decision, and a template that forgets it fails
+    loudly at render time like any other unresolved placeholder.
     """
     subject = targets.step.subject_override or (
         targets.template.subject if targets.template else None
@@ -271,6 +277,7 @@ def render_for(targets: SendTargets, sender: EmailAccount | None) -> templates.R
         job=targets.job,
         organization=targets.organization,
         sender=sender,
+        extra={"unsubscribe_url": unsubscribe_url} if unsubscribe_url else None,
     )
     return templates.render_message(
         subject=subject, body=body, body_html=body_html, context=context
@@ -415,7 +422,21 @@ async def dispatch_one(
         await session.commit()
         return outcome("no_sender")
 
-    rendered = render_for(targets, sender)
+    # --- Find the row a previous pass left behind, before rendering ---
+    # The opt-out token has to exist before the render, because
+    # {{unsubscribe_url}} is built from it. On a retry it comes off the
+    # existing row rather than being minted again, so the link in the body the
+    # candidate finally receives is the one the stored message claims.
+    message = await _pending_message(session, enrollment, step)
+    token = (message.tracking_token if message is not None else None) or (
+        _new_tracking_token()
+    )
+
+    rendered = render_for(
+        targets,
+        sender,
+        unsubscribe_url=outreach_service.unsubscribe_page_url(token),
+    )
     if not rendered.ok:
         _pause(
             enrollment,
@@ -426,7 +447,6 @@ async def dispatch_one(
         return outcome("unrendered", ", ".join(rendered.missing))
 
     # --- Write the row before sending, or reuse the one a crash left behind ---
-    message = await _pending_message(session, enrollment, step)
     if message is None:
         message = OutreachMessage(
             organization_id=organization_id,
@@ -440,10 +460,16 @@ async def dispatch_one(
             body=rendered.body,
             variant_group=step.variant_group,
             scheduled_at=enrollment.next_send_at,
-            tracking_token=_new_tracking_token(),
+            tracking_token=token,
         )
         session.add(message)
         await session.flush()
+    else:
+        # A retry re-renders, because the template may have been fixed since
+        # the row was written. The record has to follow what actually goes out.
+        message.tracking_token = token
+        message.subject = rendered.subject
+        message.body = rendered.body
     message.email_account_id = sender.id
 
     if not settings.outreach_sending_enabled:
@@ -522,12 +548,14 @@ async def _send(
     A transport that raises must look like a retryable failure rather than take
     down the pass: the next enrollment in the queue is unrelated to this one.
     """
-    opt_out = unsubscribe_url(message.tracking_token)
+    opt_out = outreach_service.one_click_unsubscribe_url(message.tracking_token)
     headers = {}
     if opt_out:
         # One-click opt-out is what keeps a sending domain out of the spam
         # folder, and it has to be a header — a link in the footer only helps
-        # the candidates who scroll.
+        # the candidates who scroll. It points at the API rather than the
+        # frontend because RFC 8058 means the mail client POSTs here itself,
+        # with no browser and no page load.
         headers["List-Unsubscribe"] = f"<{opt_out}>"
         headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 

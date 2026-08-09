@@ -32,18 +32,21 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.db.tenancy import get_scoped, scoped_select
 from app.models.application import Application
-from app.models.candidate import Candidate
+from app.models.candidate import Candidate, CandidateConsent
 from app.models.enums import (
     ApplicationStatus,
+    ConsentStatus,
     ConsentType,
     EnrollmentStatus,
     MessageStatus,
     OutreachChannel,
     SequenceStatus,
 )
+from app.models.organization import Organization
 from app.models.outreach import (
     MessageTemplate,
     OutreachMessage,
@@ -108,6 +111,7 @@ STAT_KEYS = (
     "replied",
     "bounced",
     "failed",
+    "unsubscribed",
 )
 
 
@@ -925,6 +929,179 @@ async def unsubscribe(
     await session.commit()
     await session.refresh(enrollment)
     return enrollment
+
+
+# --------------------------------------------------------------------------- #
+# Opting out from a link in a message
+# --------------------------------------------------------------------------- #
+def unsubscribe_page_url(token: str | None) -> str | None:
+    """The page a human lands on. Goes in the message body, for a human to read.
+
+    A visible opt-out in the body is not the same requirement as the header
+    one: the header serves the mail client, this serves the reader, and
+    CAN-SPAM asks for the second regardless of whether the first is present.
+    """
+    if not token:
+        return None
+    return f"{settings.public_base_url.rstrip('/')}/outreach/unsubscribe/{token}"
+
+
+def one_click_unsubscribe_url(token: str | None) -> str | None:
+    """The endpoint a mail client POSTs to. Goes in ``List-Unsubscribe``.
+
+    This must be the API and not the frontend. RFC 8058 one-click means the
+    client sends a POST with no human involved and no page load, so pointing
+    the header at a single-page app would advertise an opt-out that silently
+    404s — and a candidate whose unsubscribe appears to be ignored reports the
+    next message as spam, which is the outcome the header exists to avoid.
+    """
+    if not token:
+        return None
+    base = settings.api_base_url.rstrip("/")
+    prefix = settings.api_v1_prefix.rstrip("/")
+    return f"{base}{prefix}/outreach/unsubscribe/{token}"
+
+
+@dataclass
+class UnsubscribeResult:
+    """What one opt-out did, for the confirmation page and for the audit log."""
+
+    candidate_id: uuid.UUID
+    organization_id: uuid.UUID
+    organization_name: str | None
+    enrollment_id: uuid.UUID | None
+    # Enrollments this call actually stopped. Zero on a repeat click.
+    stopped: int = 0
+    # True when consent was already withdrawn before this call.
+    already_unsubscribed: bool = False
+
+
+async def message_by_tracking_token(
+    session: AsyncSession, token: str
+) -> OutreachMessage:
+    """Resolve an opt-out token to the message it was minted for.
+
+    Deliberately unscoped by tenant: the holder is a candidate with a link, not
+    a user with an organization. The token is unique across the table, and the
+    message it resolves to is what supplies the tenant for everything after.
+
+    A bad token and a deleted one both surface as the same "not valid", so a
+    guess cannot be distinguished from a near miss.
+    """
+    if not token:
+        raise NotFoundError("This unsubscribe link is not valid")
+    message = await session.scalar(
+        select(OutreachMessage).where(
+            OutreachMessage.tracking_token == token,
+            OutreachMessage.deleted_at.is_(None),
+        )
+    )
+    if message is None:
+        raise NotFoundError("This unsubscribe link is not valid")
+    return message
+
+
+async def _active_enrollments_for(
+    session: AsyncSession, organization_id: uuid.UUID, candidate_id: uuid.UUID
+) -> list[SequenceEnrollment]:
+    result = await session.execute(
+        scoped_select(SequenceEnrollment, organization_id).where(
+            SequenceEnrollment.candidate_id == candidate_id,
+            SequenceEnrollment.status.not_in(tuple(TERMINAL_ENROLLMENT_STATUSES)),
+        )
+    )
+    return list(result.scalars().all())
+
+
+async def unsubscribe_by_token(
+    session: AsyncSession,
+    token: str,
+    *,
+    now: datetime | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    source: str = "unsubscribe_link",
+) -> UnsubscribeResult:
+    """Act on a candidate clicking unsubscribe in one message.
+
+    **The opt-out is per candidate, not per sequence.** Someone who asks to
+    stop hearing from us means all of it. Honouring only the sequence the link
+    came from would keep a candidate enrolled in two campaigns hearing from the
+    other one, which is exactly the experience that earns a spam report.
+
+    So the durable act is withdrawing ``EMAIL_COMMUNICATION`` consent, written
+    as a new row because consent records are immutable. That alone stops future
+    sends, since the dispatcher re-reads consent at send time — including for
+    sequences this candidate has not been enrolled in yet. Halting the live
+    enrollments on top of it is what makes the recruiter's pipeline view honest
+    straight away rather than at each one's next send attempt.
+
+    Withdrawal is scoped to email. It is not a blacklisting: a candidate who
+    wants no more campaign mail has not asked the recruiter never to phone them
+    about the role they applied for, and quietly widening it would destroy
+    information the candidate never chose to give up.
+
+    Idempotent, because a mail client that does not see a response will POST
+    again, and because people click twice.
+    """
+    # Imported here: candidate_service imports this module for enrolment
+    # filtering, so a module-level import would close the cycle.
+    from app.services import candidate_service
+
+    stamp = _now(now)
+    message = await message_by_tracking_token(session, token)
+    organization_id = message.organization_id
+    candidate_id = message.candidate_id
+
+    already = not await candidate_service.has_consent(
+        session, organization_id, candidate_id, ConsentType.EMAIL_COMMUNICATION
+    )
+    if not already:
+        session.add(
+            CandidateConsent(
+                organization_id=organization_id,
+                candidate_id=candidate_id,
+                consent_type=ConsentType.EMAIL_COMMUNICATION,
+                status=ConsentStatus.WITHDRAWN,
+                granted_at=stamp,
+                withdrawn_at=stamp,
+                source=source,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                evidence_json={"message_id": str(message.id)},
+            )
+        )
+
+    live = await _active_enrollments_for(session, organization_id, candidate_id)
+    for enrollment in live:
+        halt(
+            enrollment,
+            EnrollmentStatus.UNSUBSCRIBED,
+            reason="Candidate unsubscribed",
+            now=stamp,
+        )
+        sequence = await get_scoped(
+            session, OutreachSequence, enrollment.sequence_id, organization_id
+        )
+        if sequence is not None:
+            bump_stats(sequence, "unsubscribed")
+
+    organization = await session.get(Organization, organization_id)
+    await session.commit()
+
+    logger.info(
+        "Candidate %s unsubscribed from email; %d enrollment(s) stopped",
+        candidate_id,
+        len(live),
+    )
+    return UnsubscribeResult(
+        candidate_id=candidate_id,
+        organization_id=organization_id,
+        organization_name=organization.name if organization else None,
+        enrollment_id=message.enrollment_id,
+        stopped=len(live),
+        already_unsubscribed=already,
+    )
 
 
 # --------------------------------------------------------------------------- #
