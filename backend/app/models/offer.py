@@ -98,6 +98,10 @@ class OfferLetter(TenantBase):
     esign_provider: Mapped[str | None] = mapped_column(String(32))  # docusign | digio
     esign_envelope_id: Mapped[str | None] = mapped_column(String(255), index=True)
     esign_status: Mapped[str | None] = mapped_column(String(40))
+    # The full name the candidate typed to confirm the self-serve signature.
+    # Populated when no e-signature provider is configured, in which case the
+    # typed confirmation itself is the record — see offer_service.accept.
+    signed_by_name: Mapped[str | None] = mapped_column(String(255))
     access_token: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
 
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(

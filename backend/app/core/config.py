@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     # over time. Never a rejection — see assessment_service.submit.
     assessment_time_grace_minutes: int = 5
 
+    # --- Offers (design §4.7) ---
+    # How long a sent offer stays open when the recruiter did not set an
+    # explicit ``expiry_date``. A fallback, not a requirement — an offer with
+    # its own deadline uses that instead.
+    offer_default_expiry_days: int = 14
+
     # --- Outreach (design §4.2) ---
     # Master switch for outbound sending. False keeps the whole pipeline —
     # enrolment, scheduling, rendering — working while no mail leaves the box,

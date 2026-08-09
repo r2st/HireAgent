@@ -34,6 +34,7 @@ ROLE_PERMISSIONS: dict[UserRole, set[str]] = {
         "assessment:update",
         "offer:read",
         "offer:create",
+        "offer:update",
         "offer:approve",
         "analytics:read",
         "outreach:read",
@@ -67,6 +68,8 @@ ROLE_PERMISSIONS: dict[UserRole, set[str]] = {
         "outreach:update",
         "offer:read",
         "offer:create",
+        "offer:update",
+        "offer:delete",
         "analytics:read",
     },
     # Interviewers see only what they need to run their assigned interviews.
