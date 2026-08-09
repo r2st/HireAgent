@@ -69,6 +69,21 @@ class Settings(BaseSettings):
     # How far ahead slot search looks by default.
     interview_horizon_days: int = 14
 
+    # --- Outreach (design §4.2) ---
+    # Master switch for outbound sending. False keeps the whole pipeline —
+    # enrolment, scheduling, rendering — working while no mail leaves the box,
+    # which is what staging and the test suite want.
+    outreach_sending_enabled: bool = True
+    # Warm-up ramp: a fresh mailbox starts here and climbs by the daily step
+    # until it reaches the cap, at which point it is READY.
+    warmup_initial_daily_limit: int = 10
+    warmup_daily_increment: int = 5
+    warmup_target_daily_limit: int = 200
+    # A sender whose reputation falls below this is pulled from rotation.
+    sender_min_reputation: float = 50.0
+    # Retries before a queued message is abandoned.
+    outreach_max_send_attempts: int = 3
+
     # --- Storage ---
     storage_dir: str = "./var/storage"
     max_upload_bytes: int = 15 * 1024 * 1024

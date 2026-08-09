@@ -15,6 +15,7 @@ import httpx
 import pytest
 
 from app.integrations import calendar as calendar_api
+from app.integrations import oauth as oauth_api
 from app.integrations.calendar import (
     BusyResult,
     CalendarCredentials,
@@ -25,64 +26,10 @@ from app.integrations.calendar import (
     _coerce_blocks,
     _parse_dt,
 )
+from tests.factories import FakeHTTP, FakeResponse, install_http
 
 WINDOW_START = datetime(2027, 1, 4, 0, tzinfo=UTC)
 WINDOW_END = datetime(2027, 1, 11, 0, tzinfo=UTC)
-
-
-class FakeResponse:
-    def __init__(self, status_code: int, payload: object = None, text: str = "") -> None:
-        self.status_code = status_code
-        self._payload = payload
-        self.text = text or str(payload)
-
-    def json(self) -> object:
-        if isinstance(self._payload, Exception):
-            raise self._payload
-        if self._payload is None:
-            raise ValueError("no json body")
-        return self._payload
-
-
-class FakeHTTP:
-    """Stands in for ``httpx`` inside the calendar module.
-
-    Records every call so a test can assert on the request the provider built,
-    not merely on what it did with the reply.
-    """
-
-    def __init__(self, *responses: object) -> None:
-        self.responses = list(responses)
-        self.calls: list[dict] = []
-        outer = self
-
-        class _Client:
-            def __init__(self, **kwargs) -> None:
-                self.kwargs = kwargs
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *exc) -> bool:
-                return False
-
-            async def _record(self, method: str, url: str, **kwargs):
-                outer.calls.append({"method": method, "url": url, **kwargs})
-                if not outer.responses:
-                    raise AssertionError(f"unexpected {method} {url}")
-                nxt = outer.responses.pop(0)
-                if isinstance(nxt, Exception):
-                    raise nxt
-                return nxt
-
-            async def post(self, url, **kwargs):
-                return await self._record("POST", url, **kwargs)
-
-            async def delete(self, url, **kwargs):
-                return await self._record("DELETE", url, **kwargs)
-
-        self.AsyncClient = _Client
-        self.HTTPError = httpx.HTTPError
 
 
 @pytest.fixture
@@ -109,8 +56,7 @@ def creds(**overrides) -> CalendarCredentials:
 
 
 def install(monkeypatch: pytest.MonkeyPatch, http: FakeHTTP) -> FakeHTTP:
-    monkeypatch.setattr(calendar_api, "httpx", http)
-    return http
+    return install_http(monkeypatch, http, calendar_api, oauth_api)
 
 
 # --------------------------------------------------------------------------- #

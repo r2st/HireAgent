@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import io
 from datetime import datetime
+from types import ModuleType
+
+import httpx
+import pytest
 
 from app.integrations.calendar import (
     BusyResult,
@@ -16,6 +20,85 @@ from app.integrations.calendar import (
     EventResult,
 )
 from app.integrations.openrouter import LLMResult, OpenRouterClient
+
+
+# --------------------------------------------------------------------------- #
+# Fake HTTP transport
+# --------------------------------------------------------------------------- #
+class FakeResponse:
+    def __init__(
+        self, status_code: int, payload: object = None, text: str = ""
+    ) -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text or str(payload)
+
+    def json(self) -> object:
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        if self._payload is None:
+            raise ValueError("no json body")
+        return self._payload
+
+
+class FakeHTTP:
+    """Stands in for the ``httpx`` module inside a gateway.
+
+    Responses are handed out in order, and every call is recorded so a test can
+    assert on the request the gateway built, not merely on what it did with the
+    reply. A queued ``Exception`` is raised instead of returned, which is how
+    transport faults are simulated.
+    """
+
+    def __init__(self, *responses: object) -> None:
+        self.responses = list(responses)
+        self.calls: list[dict] = []
+        outer = self
+
+        class _Client:
+            def __init__(self, **kwargs) -> None:
+                self.kwargs = kwargs
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc) -> bool:
+                return False
+
+            async def _record(self, method: str, url: str, **kwargs):
+                outer.calls.append({"method": method, "url": url, **kwargs})
+                if not outer.responses:
+                    raise AssertionError(f"unexpected {method} {url}")
+                nxt = outer.responses.pop(0)
+                if isinstance(nxt, Exception):
+                    raise nxt
+                return nxt
+
+            async def post(self, url, **kwargs):
+                return await self._record("POST", url, **kwargs)
+
+            async def get(self, url, **kwargs):
+                return await self._record("GET", url, **kwargs)
+
+            async def delete(self, url, **kwargs):
+                return await self._record("DELETE", url, **kwargs)
+
+        self.AsyncClient = _Client
+        self.HTTPError = httpx.HTTPError
+
+
+def install_http(
+    monkeypatch: pytest.MonkeyPatch, http: FakeHTTP, *modules: ModuleType
+) -> FakeHTTP:
+    """Swap ``httpx`` for ``http`` in each module that calls out.
+
+    Every module doing its own request has to be named: token refresh lives in
+    ``app.integrations.oauth`` while the API calls live in the gateway, so
+    patching only the gateway lets a refresh reach the real network.
+    """
+    for module in modules:
+        monkeypatch.setattr(module, "httpx", http)
+    return http
 
 # --------------------------------------------------------------------------- #
 # Resume text

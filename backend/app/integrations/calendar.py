@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import httpx
 
 from app.core.config import settings
+from app.integrations import oauth
+from app.integrations.oauth import TokenRefresh
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +30,8 @@ GOOGLE = "google"
 OUTLOOK = "outlook"
 
 GOOGLE_API = "https://www.googleapis.com/calendar/v3"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_TOKEN_URL = oauth.GOOGLE_TOKEN_URL
 MICROSOFT_API = "https://graph.microsoft.com/v1.0"
-
-# Refresh a little before expiry so a token does not lapse mid-request.
-TOKEN_REFRESH_MARGIN = timedelta(minutes=5)
 
 _TIMEOUT = 20.0
 
@@ -50,21 +49,7 @@ class CalendarCredentials:
 
     @property
     def is_expired(self) -> bool:
-        if self.expires_at is None:
-            # Unknown expiry: assume valid and let a 401 drive the refresh.
-            return False
-        expires = self.expires_at
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=UTC)
-        return expires - TOKEN_REFRESH_MARGIN <= datetime.now(UTC)
-
-
-@dataclass
-class TokenRefresh:
-    """A newly minted access token the caller should persist."""
-
-    access_token: str
-    expires_at: datetime | None = None
+        return oauth.is_expired(self.expires_at)
 
 
 @dataclass
@@ -182,6 +167,7 @@ class _OAuthProvider(CalendarProvider):
     """Shared OAuth refresh plumbing for the real providers."""
 
     token_url = ""
+    refresh_scope: str | None = None
 
     def __init__(self, client_id: str = "", client_secret: str = "") -> None:
         self.client_id = client_id
@@ -191,47 +177,19 @@ class _OAuthProvider(CalendarProvider):
     def is_configured(self) -> bool:
         return bool(self.client_id and self.client_secret)
 
-    def _refresh_payload(self, refresh_token: str) -> dict[str, str]:
-        return {
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
-        }
-
     async def _refresh(self, credentials: CalendarCredentials) -> TokenRefresh | None:
         """Exchange the refresh token for a new access token."""
         if not credentials.refresh_token or not self.is_configured:
             return None
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                response = await client.post(
-                    self.token_url,
-                    data=self._refresh_payload(credentials.refresh_token),
-                )
-            if response.status_code >= 400:
-                logger.warning(
-                    "%s token refresh failed: %s %s",
-                    self.name,
-                    response.status_code,
-                    response.text[:200],
-                )
-                return None
-            body = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("%s token refresh error: %s", self.name, exc)
-            return None
-
-        token = body.get("access_token")
-        if not token:
-            return None
-        expires_in = body.get("expires_in")
-        expires_at = (
-            datetime.now(UTC) + timedelta(seconds=int(expires_in))
-            if isinstance(expires_in, int | float | str) and str(expires_in).isdigit()
-            else None
+        return await oauth.refresh_access_token(
+            self.token_url,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            refresh_token=credentials.refresh_token,
+            scope=self.refresh_scope,
+            provider=self.name,
+            timeout=_TIMEOUT,
         )
-        return TokenRefresh(access_token=token, expires_at=expires_at)
 
     async def _authorize(
         self, credentials: CalendarCredentials
@@ -386,15 +344,12 @@ class OutlookCalendarProvider(_OAuthProvider):
         super().__init__(client_id, client_secret)
         self.tenant = tenant or "common"
 
+    # Graph requires an explicit scope on refresh.
+    refresh_scope = "https://graph.microsoft.com/.default offline_access"
+
     @property
     def token_url(self) -> str:  # type: ignore[override]
-        return f"https://login.microsoftonline.com/{self.tenant}/oauth2/v2.0/token"
-
-    def _refresh_payload(self, refresh_token: str) -> dict[str, str]:
-        payload = super()._refresh_payload(refresh_token)
-        # Graph requires an explicit scope on refresh.
-        payload["scope"] = "https://graph.microsoft.com/.default offline_access"
-        return payload
+        return oauth.microsoft_token_url(self.tenant)
 
     async def fetch_busy(
         self, credentials: CalendarCredentials, start: datetime, end: datetime

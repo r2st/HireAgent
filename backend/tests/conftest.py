@@ -30,6 +30,7 @@ from sqlalchemy.pool import StaticPool  # noqa: E402
 from app.api.deps import get_session  # noqa: E402
 from app.core.ratelimit import reset_local_windows  # noqa: E402
 from app.integrations import calendar as calendar_module  # noqa: E402
+from app.integrations import email_gateway as email_module  # noqa: E402
 from app.integrations import openrouter as openrouter_module  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import Base  # noqa: E402
@@ -79,9 +80,11 @@ def no_calendar():
     """
     calendar_module.set_providers(None)
     reminders_module.set_notifier(None)
+    email_module.set_transports(None)
     yield
     calendar_module.set_providers(None)
     reminders_module.set_notifier(None)
+    email_module.set_transports(None)
 
 
 @pytest_asyncio.fixture
