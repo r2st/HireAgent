@@ -301,13 +301,13 @@ async def list_consents(
     return list(result.scalars().all())
 
 
-async def has_consent(
+async def latest_consent(
     session: AsyncSession,
     organization_id: uuid.UUID,
     candidate_id: uuid.UUID,
     consent_type: ConsentType,
-) -> bool:
-    """Whether the most recent record for this type is an active grant.
+) -> CandidateConsent | None:
+    """The record that decides where a candidate currently stands on one type.
 
     A tie on ``granted_at`` is broken toward withdrawal. Two records really can
     share the timestamp — it is a supplied instant rather than an insertion
@@ -323,7 +323,7 @@ async def has_consent(
     withdrawal_first = case(
         (CandidateConsent.status == ConsentStatus.GRANTED, 1), else_=0
     )
-    latest = await session.scalar(
+    return await session.scalar(
         scoped_select(CandidateConsent, organization_id)
         .where(
             CandidateConsent.candidate_id == candidate_id,
@@ -336,11 +336,46 @@ async def has_consent(
         )
         .limit(1)
     )
+
+
+async def has_consent(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+    consent_type: ConsentType,
+) -> bool:
+    """Whether the most recent record for this type is an active grant.
+
+    Silence counts as "no": opt-in channels must never fall back to sending.
+    """
+    latest = await latest_consent(
+        session, organization_id, candidate_id, consent_type
+    )
     if latest is None or latest.status != ConsentStatus.GRANTED:
         return False
     if latest.expires_at is not None and latest.expires_at < datetime.now(UTC):
         return False
     return True
+
+
+async def consent_refused(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    candidate_id: uuid.UUID,
+    consent_type: ConsentType,
+) -> bool:
+    """Whether the candidate has actively said no to this type.
+
+    The mirror image of ``has_consent`` rather than its negation, and the
+    distinction matters. Cold outreach is opt-in, so no record means do not
+    send. Steps the candidate set in motion themselves — sitting an assessment
+    for a job they applied to — are opt-out: no record means carry on, and only
+    an explicit withdrawal stops it.
+    """
+    latest = await latest_consent(
+        session, organization_id, candidate_id, consent_type
+    )
+    return latest is not None and latest.status == ConsentStatus.WITHDRAWN
 
 
 # --------------------------------------------------------------------------- #

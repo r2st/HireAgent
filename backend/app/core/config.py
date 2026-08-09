@@ -76,6 +76,14 @@ class Settings(BaseSettings):
     # How far ahead slot search looks by default.
     interview_horizon_days: int = 14
 
+    # --- Assessments (design §4.4) ---
+    # How long an assessment invite link stays usable. Longer than a booking
+    # link because sitting a test needs a free evening, not a free minute.
+    assessment_token_ttl_hours: int = 168
+    # Grace on top of the paper's duration before a submission is flagged as
+    # over time. Never a rejection — see assessment_service.submit.
+    assessment_time_grace_minutes: int = 5
+
     # --- Outreach (design §4.2) ---
     # Master switch for outbound sending. False keeps the whole pipeline —
     # enrolment, scheduling, rendering — working while no mail leaves the box,

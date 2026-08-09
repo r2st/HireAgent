@@ -29,6 +29,9 @@ ROLE_PERMISSIONS: dict[UserRole, set[str]] = {
         # Hiring managers sit on panels, so they file scorecards too.
         "interview:feedback",
         "assessment:read",
+        # A hiring manager marks the free-form answers on their own req, but
+        # does not author the papers or issue them.
+        "assessment:update",
         "offer:read",
         "offer:create",
         "offer:approve",
@@ -57,6 +60,8 @@ ROLE_PERMISSIONS: dict[UserRole, set[str]] = {
         "interview:feedback",
         "assessment:read",
         "assessment:create",
+        "assessment:update",
+        "assessment:delete",
         "outreach:read",
         "outreach:create",
         "outreach:update",

@@ -68,6 +68,18 @@ class Assessment(TenantBase):
         String(24), default=AssessmentStatus.PENDING, nullable=False, index=True
     )
 
+    # The paper exactly as it was issued. Snapshotted from the template rather
+    # than read through ``template_id`` at grading time: editing a template must
+    # not silently rewrite the questions somebody is part-way through answering,
+    # nor change the mark of one already sat.
+    questions_json: Mapped[list] = mapped_column(
+        JSONColumn, default=list, nullable=False
+    )
+    passing_score: Mapped[float] = mapped_column(
+        Numeric(5, 2), default=60, nullable=False
+    )
+    duration_minutes: Mapped[int | None] = mapped_column(Integer)
+
     score: Mapped[float | None] = mapped_column(Numeric(5, 2))
     max_score: Mapped[float] = mapped_column(Numeric(5, 2), default=100, nullable=False)
     passed: Mapped[bool | None] = mapped_column(Boolean)
