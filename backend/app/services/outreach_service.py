@@ -54,6 +54,7 @@ from app.models.outreach import (
     SequenceEnrollment,
     SequenceStep,
 )
+from app.schemas.common import PaginationParams
 from app.services.availability import load_zone, to_utc
 
 logger = logging.getLogger(__name__)
@@ -738,20 +739,46 @@ async def get_enrollment(
 async def list_enrollments(
     session: AsyncSession,
     organization_id: uuid.UUID,
+    params: PaginationParams | None = None,
     *,
     sequence_id: uuid.UUID | None = None,
     candidate_id: uuid.UUID | None = None,
     status: EnrollmentStatus | None = None,
-) -> list[SequenceEnrollment]:
+) -> tuple[list[SequenceEnrollment], int]:
+    """List enrollments, newest first.
+
+    ``params`` is optional so internal callers (e.g. tests exercising a
+    single campaign) don't have to construct one; it defaults to page 1 at
+    the standard page size rather than returning every row, since a live
+    campaign can enroll thousands of candidates.
+    """
+    params = params or PaginationParams()
     stmt = scoped_select(SequenceEnrollment, organization_id)
+    count_stmt = (
+        select(func.count())
+        .select_from(SequenceEnrollment)
+        .where(
+            SequenceEnrollment.organization_id == organization_id,
+            SequenceEnrollment.deleted_at.is_(None),
+        )
+    )
     if sequence_id is not None:
         stmt = stmt.where(SequenceEnrollment.sequence_id == sequence_id)
+        count_stmt = count_stmt.where(SequenceEnrollment.sequence_id == sequence_id)
     if candidate_id is not None:
         stmt = stmt.where(SequenceEnrollment.candidate_id == candidate_id)
+        count_stmt = count_stmt.where(SequenceEnrollment.candidate_id == candidate_id)
     if status is not None:
         stmt = stmt.where(SequenceEnrollment.status == status)
-    stmt = stmt.order_by(SequenceEnrollment.enrolled_at.desc())
-    return list((await session.execute(stmt)).scalars().all())
+        count_stmt = count_stmt.where(SequenceEnrollment.status == status)
+    stmt = (
+        stmt.order_by(SequenceEnrollment.enrolled_at.desc())
+        .offset(params.offset)
+        .limit(params.page_size)
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    total = int(await session.scalar(count_stmt) or 0)
+    return rows, total
 
 
 async def due_enrollments(

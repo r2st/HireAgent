@@ -496,7 +496,31 @@ class TestEnrollment:
             headers=auth_headers,
         )
         assert resp.status_code == 200
-        assert len(resp.json()) == 1
+        body = resp.json()
+        assert body["total"] == 1
+        assert len(body["items"]) == 1
+
+    async def test_enrollments_are_paginated(
+        self, client: AsyncClient, auth_headers: dict, active_sequence: dict
+    ) -> None:
+        for _ in range(3):
+            candidate = await create_consented_candidate(client, auth_headers)
+            await client.post(
+                f"/api/v1/outreach/sequences/{active_sequence['id']}/enroll",
+                headers=auth_headers,
+                json={"candidate_ids": [candidate["id"]]},
+            )
+        resp = await client.get(
+            f"/api/v1/outreach/sequences/{active_sequence['id']}/enrollments",
+            headers=auth_headers,
+            params={"page": 1, "page_size": 2},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 3
+        assert len(body["items"]) == 2
+        assert body["page"] == 1
+        assert body["page_size"] == 2
 
 
 # --------------------------------------------------------------------------- #

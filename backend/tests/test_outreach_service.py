@@ -49,6 +49,7 @@ from app.models.outreach import (
     OutreachSequence,
     SequenceEnrollment,
 )
+from app.schemas.common import PaginationParams
 from app.services import outreach_service as svc
 
 # A Monday at midday UTC, so nothing here depends on a weekend rule by accident.
@@ -1017,7 +1018,7 @@ class TestListEnrollments:
         await svc.enroll(
             session, org.id, campaign["sequence"].id, [campaign["candidate"].id], now=NOW
         )
-        found = await svc.list_enrollments(
+        found, total = await svc.list_enrollments(
             session,
             org.id,
             sequence_id=campaign["sequence"].id,
@@ -1025,6 +1026,7 @@ class TestListEnrollments:
             status=EnrollmentStatus.ACTIVE,
         )
         assert len(found) == 1
+        assert total == 1
 
     async def test_a_status_filter_that_matches_nothing_is_empty(
         self, session, org, campaign
@@ -1032,10 +1034,11 @@ class TestListEnrollments:
         await svc.enroll(
             session, org.id, campaign["sequence"].id, [campaign["candidate"].id], now=NOW
         )
-        found = await svc.list_enrollments(
+        found, total = await svc.list_enrollments(
             session, org.id, status=EnrollmentStatus.REPLIED
         )
         assert found == []
+        assert total == 0
 
     async def test_another_orgs_enrollments_are_invisible(
         self, session, org, other_org, campaign
@@ -1043,7 +1046,36 @@ class TestListEnrollments:
         await svc.enroll(
             session, org.id, campaign["sequence"].id, [campaign["candidate"].id], now=NOW
         )
-        assert await svc.list_enrollments(session, other_org.id) == []
+        found, total = await svc.list_enrollments(session, other_org.id)
+        assert found == []
+        assert total == 0
+
+    async def test_a_second_page_is_offset_past_the_first(
+        self, session, org, campaign
+    ) -> None:
+        candidates = [campaign["candidate"]]
+        for _ in range(2):
+            other = await make_candidate(session, org)
+            await grant(session, org, other)
+            candidates.append(other)
+        await svc.enroll(
+            session,
+            org.id,
+            campaign["sequence"].id,
+            [c.id for c in candidates],
+            now=NOW,
+        )
+
+        first_page, total = await svc.list_enrollments(
+            session, org.id, PaginationParams(page=1, page_size=2)
+        )
+        second_page, _ = await svc.list_enrollments(
+            session, org.id, PaginationParams(page=2, page_size=2)
+        )
+        assert total == 3
+        assert len(first_page) == 2
+        assert len(second_page) == 1
+        assert {e.id for e in first_page}.isdisjoint({e.id for e in second_page})
 
 
 # --------------------------------------------------------------------------- #

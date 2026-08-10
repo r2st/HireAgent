@@ -33,7 +33,7 @@ from app.models.enums import (
 )
 from app.models.organization import Organization
 from app.models.outreach import OutreachSequence, SequenceEnrollment
-from app.schemas.common import MessageResponse
+from app.schemas.common import MessageResponse, Page, PaginationParams
 from app.schemas.outreach import UnsubscribeResponse, UnsubscribeView, mask_email
 from app.schemas.outreach_sequence import (
     EnrollmentOut,
@@ -397,20 +397,26 @@ async def enroll_candidates(
     )
 
 
-@router.get("/sequences/{sequence_id}/enrollments", response_model=list[EnrollmentOut])
+@router.get("/sequences/{sequence_id}/enrollments", response_model=Page[EnrollmentOut])
 async def list_sequence_enrollments(
     sequence_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=200),
     enrollment_status: EnrollmentStatus | None = Query(None, alias="status"),
     current: CurrentUser = Depends(require_permission("outreach:read")),
     session: AsyncSession = Depends(get_session),
-) -> list[EnrollmentOut]:
-    enrollments = await outreach_service.list_enrollments(
+) -> Page[EnrollmentOut]:
+    params = PaginationParams(page=page, page_size=page_size)
+    enrollments, total = await outreach_service.list_enrollments(
         session,
         current.organization_id,
+        params,
         sequence_id=sequence_id,
         status=enrollment_status,
     )
-    return [EnrollmentOut.model_validate(e) for e in enrollments]
+    return Page[EnrollmentOut].build(
+        [EnrollmentOut.model_validate(e) for e in enrollments], total, params
+    )
 
 
 @router.get("/enrollments/{enrollment_id}", response_model=EnrollmentOut)
