@@ -25,7 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, client_ip, get_session, require_permission
 from app.core.errors import AppError, NotFoundError
 from app.db.tenancy import get_scoped
-from app.models.enums import ConsentType, EnrollmentStatus, SequenceStatus
+from app.models.enums import (
+    ConsentType,
+    EnrollmentStatus,
+    OutreachChannel,
+    SequenceStatus,
+)
 from app.models.organization import Organization
 from app.models.outreach import OutreachSequence, SequenceEnrollment
 from app.schemas.common import MessageResponse
@@ -36,6 +41,9 @@ from app.schemas.outreach_sequence import (
     EnrollmentReportOut,
     EnrollmentSkip,
     EnrollRequest,
+    MessageTemplateCreate,
+    MessageTemplateOut,
+    MessageTemplateUpdate,
     SequenceCreate,
     SequenceOut,
     SequenceStatsOut,
@@ -45,10 +53,95 @@ from app.schemas.outreach_sequence import (
     StepReorder,
     StepUpdate,
 )
-from app.services import candidate_service, outreach_service
+from app.services import candidate_service, outreach_service, template_service
 
 router = APIRouter(prefix="/outreach", tags=["outreach"])
 public_router = APIRouter(prefix="/outreach", tags=["outreach"])
+
+
+# --------------------------------------------------------------------------- #
+# Message templates
+# --------------------------------------------------------------------------- #
+@router.post(
+    "/templates", response_model=MessageTemplateOut, status_code=status.HTTP_201_CREATED
+)
+async def create_template(
+    payload: MessageTemplateCreate,
+    current: CurrentUser = Depends(require_permission("outreach:create")),
+    session: AsyncSession = Depends(get_session),
+) -> MessageTemplateOut:
+    try:
+        template = await template_service.create_template(
+            session, current.organization_id, **payload.model_dump()
+        )
+    except AppError as exc:
+        raise exc.to_http() from exc
+    return MessageTemplateOut.model_validate(template)
+
+
+@router.get("/templates", response_model=list[MessageTemplateOut])
+async def list_templates(
+    channel: OutreachChannel | None = Query(None),
+    active_only: bool = Query(False),
+    current: CurrentUser = Depends(require_permission("outreach:read")),
+    session: AsyncSession = Depends(get_session),
+) -> list[MessageTemplateOut]:
+    templates = await template_service.list_templates(
+        session,
+        current.organization_id,
+        channel=channel,
+        active_only=active_only,
+    )
+    return [MessageTemplateOut.model_validate(t) for t in templates]
+
+
+@router.get("/templates/{template_id}", response_model=MessageTemplateOut)
+async def get_template(
+    template_id: uuid.UUID,
+    current: CurrentUser = Depends(require_permission("outreach:read")),
+    session: AsyncSession = Depends(get_session),
+) -> MessageTemplateOut:
+    try:
+        template = await template_service.get_template(
+            session, current.organization_id, template_id
+        )
+    except AppError as exc:
+        raise exc.to_http() from exc
+    return MessageTemplateOut.model_validate(template)
+
+
+@router.patch("/templates/{template_id}", response_model=MessageTemplateOut)
+async def update_template(
+    template_id: uuid.UUID,
+    payload: MessageTemplateUpdate,
+    current: CurrentUser = Depends(require_permission("outreach:update")),
+    session: AsyncSession = Depends(get_session),
+) -> MessageTemplateOut:
+    try:
+        template = await template_service.update_template(
+            session,
+            current.organization_id,
+            template_id,
+            changes=payload.model_dump(exclude_unset=True),
+        )
+    except AppError as exc:
+        raise exc.to_http() from exc
+    return MessageTemplateOut.model_validate(template)
+
+
+@router.delete("/templates/{template_id}", response_model=MessageResponse)
+async def delete_template(
+    template_id: uuid.UUID,
+    current: CurrentUser = Depends(require_permission("outreach:update")),
+    session: AsyncSession = Depends(get_session),
+) -> MessageResponse:
+    try:
+        await template_service.delete_template(
+            session, current.organization_id, template_id
+        )
+    except AppError as exc:
+        raise exc.to_http() from exc
+    return MessageResponse(message="Template deleted")
 
 
 # --------------------------------------------------------------------------- #

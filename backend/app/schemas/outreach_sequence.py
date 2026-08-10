@@ -15,6 +15,45 @@ from app.models.enums import EnrollmentStatus, OutreachChannel, SequenceStatus
 from app.schemas.common import ORMModel
 
 
+class MessageTemplateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    channel: OutreachChannel = OutreachChannel.EMAIL
+    subject: str | None = Field(default=None, max_length=500)
+    body: str = Field(min_length=1)
+    body_html: str | None = None
+    category: str | None = Field(default=None, max_length=80)
+    # WhatsApp Business requires pre-approved template names (design §2.3).
+    provider_template_name: str | None = Field(default=None, max_length=255)
+
+
+class MessageTemplateUpdate(BaseModel):
+    """All fields optional — only supplied keys are applied."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    subject: str | None = Field(default=None, max_length=500)
+    body: str | None = Field(default=None, min_length=1)
+    body_html: str | None = None
+    category: str | None = Field(default=None, max_length=80)
+    provider_template_name: str | None = Field(default=None, max_length=255)
+    is_active: bool | None = None
+
+
+class MessageTemplateOut(ORMModel):
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    name: str
+    channel: OutreachChannel
+    subject: str | None = None
+    body: str
+    body_html: str | None = None
+    variables: list
+    provider_template_name: str | None = None
+    category: str | None = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class SequenceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     job_id: uuid.UUID | None = None

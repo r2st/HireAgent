@@ -44,6 +44,21 @@ async def create_consented_candidate(client: AsyncClient, headers: dict, **overr
     return await create_candidate(client, headers, consents=consents, **overrides)
 
 
+async def create_template(client: AsyncClient, headers: dict, **overrides) -> dict:
+    payload = {
+        "name": "Cold outreach",
+        "channel": "email",
+        "subject": "Hi {{first_name}}, quick question",
+        "body": "Hi {{first_name}}, are you open to a chat about {{job_title}}?",
+    }
+    payload.update(overrides)
+    resp = await client.post(
+        "/api/v1/outreach/templates", headers=headers, json=payload
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
 # --------------------------------------------------------------------------- #
 # Sequence CRUD
 # --------------------------------------------------------------------------- #
@@ -233,6 +248,111 @@ class TestSteps:
             json={"delay_days": 3},
         )
         assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Templates
+# --------------------------------------------------------------------------- #
+class TestTemplates:
+    async def test_create_derives_variables_from_the_text(
+        self, client: AsyncClient, auth_headers: dict
+    ) -> None:
+        template = await create_template(client, auth_headers)
+        assert template["is_active"] is True
+        assert set(template["variables"]) == {"first_name", "job_title"}
+
+    async def test_an_email_template_needs_a_subject(
+        self, client: AsyncClient, auth_headers: dict
+    ) -> None:
+        resp = await client.post(
+            "/api/v1/outreach/templates",
+            headers=auth_headers,
+            json={"name": "No subject", "channel": "email", "body": "Hi there"},
+        )
+        assert resp.status_code == 422
+
+    async def test_duplicate_name_and_channel_is_a_conflict(
+        self, client: AsyncClient, auth_headers: dict
+    ) -> None:
+        await create_template(client, auth_headers, name="Repeat")
+        resp = await client.post(
+            "/api/v1/outreach/templates",
+            headers=auth_headers,
+            json={
+                "name": "Repeat",
+                "channel": "email",
+                "subject": "Hi",
+                "body": "Hi there",
+            },
+        )
+        assert resp.status_code == 409
+
+    async def test_list_get_update_delete(
+        self, client: AsyncClient, auth_headers: dict
+    ) -> None:
+        template = await create_template(client, auth_headers)
+
+        listed = await client.get("/api/v1/outreach/templates", headers=auth_headers)
+        assert listed.status_code == 200
+        assert any(t["id"] == template["id"] for t in listed.json())
+
+        fetched = await client.get(
+            f"/api/v1/outreach/templates/{template['id']}", headers=auth_headers
+        )
+        assert fetched.status_code == 200
+
+        updated = await client.patch(
+            f"/api/v1/outreach/templates/{template['id']}",
+            headers=auth_headers,
+            json={"body": "Hi {{first_name}}, new pitch entirely"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["variables"] == ["first_name"]
+
+        deleted = await client.delete(
+            f"/api/v1/outreach/templates/{template['id']}", headers=auth_headers
+        )
+        assert deleted.status_code == 200
+
+        after_delete = await client.get(
+            f"/api/v1/outreach/templates/{template['id']}", headers=auth_headers
+        )
+        assert after_delete.status_code == 404
+
+    async def test_another_tenant_cannot_read_the_template(
+        self, client: AsyncClient, auth_headers: dict, second_org: dict
+    ) -> None:
+        template = await create_template(client, auth_headers)
+        resp = await client.get(
+            f"/api/v1/outreach/templates/{template['id']}",
+            headers=second_org["headers"],
+        )
+        assert resp.status_code == 404
+
+    async def test_a_step_can_reference_a_template(
+        self, client: AsyncClient, auth_headers: dict
+    ) -> None:
+        template = await create_template(client, auth_headers)
+        sequence = await create_sequence(client, auth_headers)
+        resp = await client.post(
+            f"/api/v1/outreach/sequences/{sequence['id']}/steps",
+            headers=auth_headers,
+            json={"channel": "email", "template_id": template["id"]},
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["template_id"] == template["id"]
+
+    async def test_a_step_referencing_the_wrong_channel_template_is_refused(
+        self, client: AsyncClient, auth_headers: dict
+    ) -> None:
+        template = await create_template(client, auth_headers, channel="email")
+        sequence = await create_sequence(client, auth_headers)
+        resp = await client.post(
+            f"/api/v1/outreach/sequences/{sequence['id']}/steps",
+            headers=auth_headers,
+            json={"channel": "whatsapp", "template_id": template["id"]},
+        )
+        assert resp.status_code == 422
 
 
 # --------------------------------------------------------------------------- #
