@@ -10,8 +10,7 @@ htmlcov/
 .ruff_cache/
 
 # Environment / secrets
-.env
-.env.*
+.env*
 !.env.example
 keys/*
 !keys/.gitkeep
@@ -47,7 +46,6 @@ keys/
 !keys/.gitkeep
 *.pem
 *.key
-.env.*
 !.env.example
 yarn-error.log*
 pnpm-debug.log*
